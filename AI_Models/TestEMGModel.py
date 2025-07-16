@@ -2,11 +2,15 @@ import tf2onnx
 import tensorflow as tf
 import onnx
 import joblib
+import time
 from tensorflow import keras
 from keras.models import load_model
 from scipy.signal import butter, filtfilt, iirnotch
 import numpy as np
 import pandas as pd
+import asyncio
+
+from Bluetooth_Communication.glove_controller import RoboticGloveController
 
 def bandpass_filter(signal, fs=500, low=10, high=180, order=4):
     nyq = 0.5 * fs
@@ -23,54 +27,79 @@ def envelope_data(signal):
         signalEnvelope[:,i] = np.convolve(signal[:,i], np.ones(window)/window, mode='same')
     return signalEnvelope
 
-model = load_model(r"C:\Personal_Programs\SURP\AI_Models\cnn_flexion_Aiden.h5", compile=False)
-scaler = joblib.load(r"C:\Personal_Programs\SURP\AI_Models\emg_scaler_Aiden.pkl")
-model.summary()
+async def main():
+    model = load_model(r"C:\Personal_Programs\SURP\AI_Models\cnn_flexion_Aiden.h5", compile=False)
+    scaler = joblib.load(r"C:\Personal_Programs\SURP\AI_Models\emg_scaler_Aiden.pkl")
+    model.summary()
 
-data = pd.read_csv(r"C:\Personal_Programs\SURP\test_data_Notch.csv", header=None)
+    data = pd.read_csv(r"C:\Personal_Programs\SURP\test_data_Notch.csv", header=None)
 
-EMGdata = data.to_numpy()
+    EMGdata = data.to_numpy()
 
-input = input("Save?(Y/N)")
-if input == "Y":
-    input_signature = [
-        tf.TensorSpec(input_tensor.shape, input_tensor.dtype, name=input_tensor.name)
-        for input_tensor in model.inputs
-    ]
+    glove = RoboticGloveController()
+    try:
+        await glove.connect()
+        print("Connection Succesful!!")
+    except:
+        print("Connection failed")
+        exit()
 
-    onnx_model, _ = tf2onnx.convert.from_keras(
-        model, 
-        input_signature=input_signature, 
-        opset=13
-    )
+    input = input("Save?(Y/N)")
+    if input == "Y":
+        input_signature = [
+            tf.TensorSpec(input_tensor.shape, input_tensor.dtype, name=input_tensor.name)
+            for input_tensor in model.inputs
+        ]
 
-    onnx.save(onnx_model, "New_Onnx_Model_Aiden.onnx")
+        onnx_model, _ = tf2onnx.convert.from_keras(
+            model, 
+            input_signature=input_signature, 
+            opset=13
+        )
 
-elif input == "N":
-    inputData = np.array([])
-    for data in EMGdata[1:5001]:
-        number = [float(value) for value in data]
-        numpyNumber = np.array(number)
-        inputData = np.append(inputData, [numpyNumber[0:8]]).flatten()
-    inputData = np.reshape(inputData, shape=(-1, 8))
-    #print(inputData)
-    #print(inputData.shape)
-    bandPassInputData = bandpass_filter(inputData)
-    rectifiedInputData = rectified_data(bandPassInputData)
-    finalInputData = envelope_data(rectifiedInputData)
+        onnx.save(onnx_model, "New_Onnx_Model_Aiden.onnx")
 
-    #scaler.fit(finalInputData)
-    finalInputData = scaler.transform(np.reshape(finalInputData, shape=(-1,1)))
+    elif input == "N":
+        inputData = np.array([])
+        for data in EMGdata[1:5001]:
+            number = [float(value) for value in data]
+            numpyNumber = np.array(number)
+            inputData = np.append(inputData, [numpyNumber[0:8]]).flatten()
+        inputData = np.reshape(inputData, shape=(-1, 8))
+        #print(inputData)
+        #print(inputData.shape)
+        bandPassInputData = bandpass_filter(inputData)
+        rectifiedInputData = rectified_data(bandPassInputData)
+        finalInputData = envelope_data(rectifiedInputData)
 
-    usable_rows = finalInputData.shape[0] // 100 * 100
-    finalInputData = finalInputData[:usable_rows]
-    reshaped_input = finalInputData.reshape(-1, 100, 8)
+        #scaler.fit(finalInputData)
+        finalInputData = scaler.transform(np.reshape(finalInputData, shape=(-1,1)))
 
-    pred = model.predict(reshaped_input)
+        usable_rows = finalInputData.shape[0] // 100 * 100
+        finalInputData = finalInputData[:usable_rows]
+        reshaped_input = finalInputData.reshape(-1, 100, 8)
 
-    #scaler.fit(pred)
-    pred = scaler.inverse_transform(pred)
+        pred = model.predict(reshaped_input)
 
-    print("Prediction: \n", pred)
+        #scaler.fit(pred)
+
+        pred = np.array(pred)
+        pred = scaler.inverse_transform(pred)
+        pred = pred + 90
+
+        for i in pred:
+            await glove.set_servo_angle(1, i)
+            time.sleep(0.05)
+
+        await glove.disconnect()
+        print("glove disconnected")
+            
+
+        #print("Prediction: \n", pred)
 
 
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except:
+        print("\nProgram failed")
