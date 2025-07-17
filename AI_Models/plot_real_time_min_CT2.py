@@ -116,8 +116,6 @@ class dataTimer():
 
     def requestData(self):
         data = self.board_shim.get_board_data(100)
-        #print(data.shape)
-        #print(data)
         if data.shape[1] == 100:
             #data = np.append(data, temp)
             emg_channels = self.board_shim.get_emg_channels(self.board_id)
@@ -130,8 +128,6 @@ class dataTimer():
             data = np.transpose(data[0:8]) #Access only the EMG channels
             print(data.shape)
             inputData = np.reshape(data, shape=(-1, 8))
-            #print(inputData)
-            #print(inputData.shape)
             bandPassInputData = bandpass_filter(inputData)
             rectifiedInputData = rectified_data(bandPassInputData)
             finalInputData = envelope_data(rectifiedInputData)
@@ -147,7 +143,6 @@ class dataTimer():
             return
         else:
             data = self.requestData()
-            #print(data.shape)
             self.processData(finalInputData=data)
 
     def returnData(self):
