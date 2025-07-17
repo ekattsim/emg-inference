@@ -4,7 +4,7 @@ import time
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
-from pyqtgraph.Qt import QtGui, QtCore
+from pyqtgraph.Qt import QtGui, QtCore, QtWidgets
 from keras.models import load_model
 from scipy.signal import butter, filtfilt, iirnotch
 import joblib
@@ -85,94 +85,99 @@ def envelope_data(signal):
         signalEnvelope[:,i] = np.convolve(signal[:,i], np.ones(window)/window, mode='same')
     return signalEnvelope
 
+class dataTimer():
+    def __init__(self):
+        self.counter = 0
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.tick)
+        self.timer.start(200) #Waits for window to fill with 100 samples (ms)
+
+        self.results = 0
+        try:
+            BoardShim.enable_dev_board_logger()
+            logging.basicConfig(level=logging.DEBUG)
+
+            params = MindRoveInputParams()
+            self.board_shim = BoardShim(BoardIds.MINDROVE_WIFI_BOARD, params)
+            self.board_id = self.board_shim.get_board_id()
+            self.sampling_rate = BoardShim.get_sampling_rate(self.board_shim.board_id)
+
+            self.board_shim.prepare_session()
+            self.board_shim.start_stream()
+            time.sleep(0.2)
+        except BaseException:
+            logging.warning('Exception', exc_info=True)
+            print("\n Could not connect, check internet.")
+        finally:
+            logging.info('End')
+
+        self.scaler = joblib.load(r"C:\Personal_Programs\SURP\AI_Models\emg_scaler_Aiden.pkl")
+        self.model = load_model(r"C:\Personal_Programs\SURP\AI_Models\cnn_flexion_Aiden.h5", compile=False)
+
+    def requestData(self):
+        data = self.board_shim.get_board_data(100)
+        #print(data.shape)
+        #print(data)
+        if data.shape[1] == 100:
+            #data = np.append(data, temp)
+            emg_channels = self.board_shim.get_emg_channels(self.board_id)
+            acc_channels = self.board_shim.get_accel_channels(self.board_id)
+            gyro_channels = self.board_shim.get_gyro_channels(self.board_id)
+            for __, channel in enumerate(emg_channels):
+                DataFilter.remove_environmental_noise(data[channel], self.sampling_rate, NoiseTypes.SIXTY.value)
+
+            print(data.shape)
+            data = np.transpose(data[0:8]) #Access only the EMG channels
+            print(data.shape)
+            inputData = np.reshape(data, shape=(-1, 8))
+            #print(inputData)
+            #print(inputData.shape)
+            bandPassInputData = bandpass_filter(inputData)
+            rectifiedInputData = rectified_data(bandPassInputData)
+            finalInputData = envelope_data(rectifiedInputData)
+
+            return finalInputData
+        
+    def tick(self):
+        self.counter += 1
+        if self.counter >= 50:  # stop after 10 seconds
+            self.timer.stop()
+            self.board_shim.release_session()
+            QtWidgets.QApplication.quit()
+            return
+        else:
+            data = self.requestData()
+            #print(data.shape)
+            self.processData(finalInputData=data)
+
+    def returnData(self):
+        return self.results
+    
+    def processData(self, finalInputData):
+                
+        usable_rows = finalInputData.shape[0] // 100 * 100
+        finalInputData = finalInputData[:usable_rows]
+        reshaped_input = finalInputData.reshape(-1, 100, 8)
+
+        pred = self.model.predict(reshaped_input)
+
+        #scaler.fit(pred)
+        pred = self.scaler.inverse_transform(pred)
+
+        print("Prediction: \n", pred)
+
     
 def main():
+    app = QtWidgets.QApplication([])
 
-    BoardShim.enable_dev_board_logger()
-    logging.basicConfig(level=logging.DEBUG)
+    obj = dataTimer() #Starts timer automatically on instantiation
 
+    app.exec_()
 
-    params = MindRoveInputParams()
-    board_shim = None
-    try:
-        board_shim = BoardShim(BoardIds.MINDROVE_WIFI_BOARD, params)
-        board_shim.prepare_session()
-        board_shim.start_stream()
-        time.sleep(0.1)
-
-        board_id = board_shim.get_board_id()
-        exg_channels = BoardShim.get_exg_channels(board_shim.board_id)
-        sampling_rate = BoardShim.get_sampling_rate(board_shim.board_id)
-        update_speed_ms = 50
-        scaler = joblib.load(r"C:\Personal_Programs\SURP\AI_Models\emg_scaler_Aiden.pkl")
-        model = load_model(r"C:\Personal_Programs\SURP\AI_Models\cnn_flexion_Aiden.h5", compile=False)
-
-        secs = input("Record Time(sec): ")
-        window_size = int(secs)
-
-        num_points = 0.2 * sampling_rate
-        start_time = time.perf_counter()
-        #data = np.zeros((0, 8))
-        data = np.array([])
-        i = 0
-
-        while((time.perf_counter()-start_time)< window_size):
-            while ((time.perf_counter()-start_time)<0.2):
-                window_size = 4
-
-            data = board_shim.get_board_data(100)
-            print(data.shape)
-            print(i)
-            if data.shape[1] == 100:
-                i = i + 1
-                #data = np.append(data, temp)
-                emg_channels = board_shim.get_emg_channels(board_id)
-                acc_channels = board_shim.get_accel_channels(board_id)
-                gyro_channels = board_shim.get_gyro_channels(board_id)
-                for __, channel in enumerate(emg_channels):
-                    DataFilter.remove_environmental_noise(data[channel], sampling_rate, NoiseTypes.SIXTY.value)
-
-
-                data = np.transpose(data)
-                inputData = np.reshape(data[0:101], shape=(-1, 8))
-                #print(inputData)
-                #print(inputData.shape)
-                bandPassInputData = bandpass_filter(inputData)
-                rectifiedInputData = rectified_data(bandPassInputData)
-                finalInputData = envelope_data(rectifiedInputData)
-
-                #scaler.fit(finalInputData)
-                finalInputData = scaler.transform(np.reshape(finalInputData, shape=(-1,1)))
-
-                usable_rows = finalInputData.shape[0] // 100 * 100
-                finalInputData = finalInputData[:usable_rows]
-                reshaped_input = finalInputData.reshape(-1, 100, 8)
-
-                pred = model.predict(reshaped_input)
-
-                #scaler.fit(pred)
-                pred = scaler.inverse_transform(pred)
-
-                print("Prediction: \n", pred)
-                data = np.array([])
-            else:
-                exit()
-
-
-
-            #print(data.shape)
-            #print(emg_channels)
-            #print(acc_channels)
-            #print(gyro_channels)
-        board_shim.release_session()
-             
-    except BaseException:
-        logging.warning('Exception', exc_info=True)
-    finally:
-        logging.info('End')
-        if board_shim is not None and board_shim.is_prepared():
-            logging.info('Releasing session')
-            board_shim.release_session() 
+    #print(data.shape)
+    #print(emg_channels)
+    #print(acc_channels)
+    #print(gyro_channels)
 
 
 if __name__ == '__main__':
