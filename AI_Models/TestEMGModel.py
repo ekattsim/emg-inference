@@ -52,13 +52,7 @@ async def main():
     EMGdata = data.to_numpy()
 
     glove = RoboticGloveController()
-    try:
-        await glove.connect()
-    except:
-        print("Connection failed")
-        exit()
-
-    print("Robot hand connection succesful!!")
+    await glove.connect()
 
     user_input = input("Save?(Y/N)")
     if user_input == "Y":
@@ -82,7 +76,7 @@ async def main():
             number = [float(value) for value in data]
             numpyNumber = np.array(number)
             inputData = np.append(inputData, [numpyNumber[0:8]]).flatten()
-            inputData = np.reshape(inputData, shape=(-1, 8))
+            inputData = np.reshape(inputData, (-1, 8))
             # print(inputData)
             # print(inputData.shape)
         bandPassInputData = bandpass_filter(inputData)
@@ -91,7 +85,7 @@ async def main():
 
         # scaler.fit(finalInputData)
         finalInputData = scaler.transform(
-            np.reshape(finalInputData, shape=(-1, 1)))
+            np.reshape(finalInputData, (-1, 1)))
 
         usable_rows = finalInputData.shape[0] // 100 * 100
         finalInputData = finalInputData[:usable_rows]
@@ -103,10 +97,12 @@ async def main():
 
         pred = np.array(pred)
         pred = scaler.inverse_transform(pred)
-        pred = pred + 90
 
         for i in pred:
-            await glove.set_servo_angle(1, i)
+            # shift and round for uhand robot
+            angle = round(int(i[0]) + 30);
+            print(angle)
+            await glove.set_servo_angle(1, angle)
             time.sleep(0.05)
 
         await glove.disconnect()
