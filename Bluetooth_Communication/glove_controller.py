@@ -31,6 +31,13 @@ class RoboticGloveController:
             print("Already connected.")
             return True
 
+        device = await discover_devices_async("Hiwonder")
+        if not device:
+            print("Failed to discover the device. Cannot connect.")
+            return False
+
+        self.device_address = device.address
+
         print(f"Attempting to connect to {self.device_address}...")
         try:
             self.client = BleakClient(self.device_address)
@@ -179,18 +186,17 @@ class RoboticGloveController:
             await self.set_servo_angle(i, angle)
             print(f"Set all servos to {angle} degrees.")
 
-    @staticmethod
-    async def discover_devices_async(name):
-        """
-        Helper function for discovering devices
-        """
-        print("Scanning for BLE devices...")
-        # Scan for 5 seconds
-        device = await BleakScanner.find_device_by_name(name, timeout=5.0)
+async def discover_devices_async(name):
+    """
+    Helper function for discovering devices
+    """
+    print("Scanning for BLE devices...")
+    # Scan for 5 seconds
+    device = await BleakScanner.find_device_by_name(name, timeout=5.0)
 
-        if not device:
-            print(f"No BLE device with name {name} found.")
-            return
+    if not device:
+        print(f"No BLE device with name {name} found.")
+        return
 
-        print(f"Device {name} found.")
-        return device
+    print(f"Device {name} found.")
+    return device
