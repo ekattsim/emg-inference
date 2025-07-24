@@ -93,6 +93,7 @@ class dataTimer():
         self.timer.start(200) #Waits for window to fill with 100 samples (ms)
 
         self.results = 0
+        self.dataList = np.array([])
         try:
             BoardShim.enable_dev_board_logger()
             logging.basicConfig(level=logging.DEBUG)
@@ -104,7 +105,7 @@ class dataTimer():
 
             self.board_shim.prepare_session()
             self.board_shim.start_stream()
-            time.sleep(0.2)
+            time.sleep(0.1)
         except BaseException:
             logging.warning('Exception', exc_info=True)
             print("\n Could not connect, check internet.")
@@ -116,18 +117,26 @@ class dataTimer():
 
     def requestData(self):
         data = self.board_shim.get_board_data(100)
-        if data.shape[1] == 100:
-            #data = np.append(data, temp)
-            emg_channels = self.board_shim.get_emg_channels(self.board_id)
-            acc_channels = self.board_shim.get_accel_channels(self.board_id)
-            gyro_channels = self.board_shim.get_gyro_channels(self.board_id)
-            for __, channel in enumerate(emg_channels):
-                DataFilter.remove_environmental_noise(data[channel], self.sampling_rate, NoiseTypes.SIXTY.value)
 
-            print(data.shape)
-            data = np.transpose(data[0:8]) #Access only the EMG channels
-            print(data.shape)
-            inputData = np.reshape(data, shape=(-1, 8))
+        emg_channels = self.board_shim.get_emg_channels(self.board_id)
+        acc_channels = self.board_shim.get_accel_channels(self.board_id)
+        gyro_channels = self.board_shim.get_gyro_channels(self.board_id)
+        for __, channel in enumerate(emg_channels):
+            DataFilter.remove_environmental_noise(data[channel], self.sampling_rate, NoiseTypes.SIXTY.value)
+        data = data.T
+        data = data[:, 0:8] #Access only the EMG channels
+
+        self.dataList = np.append(data, self.dataList)
+        if data.shape[0] == 100:
+            #data = np.append(data, temp)
+
+            inputData = np.array([])
+            for elem in data:
+                number = [float(value) for value in elem]
+                numpyNumber = np.array(number)
+                inputData = np.append(inputData, [numpyNumber[0:8]]).flatten()
+            inputData = np.reshape(inputData, shape=(-1, 8))
+
             bandPassInputData = bandpass_filter(inputData)
             rectifiedInputData = rectified_data(bandPassInputData)
             finalInputData = envelope_data(rectifiedInputData)
@@ -137,29 +146,42 @@ class dataTimer():
     def tick(self):
         self.counter += 1
         if self.counter >= 50:  # stop after 10 seconds
-            self.timer.stop()
-            self.board_shim.release_session()
-            QtWidgets.QApplication.quit()
-            return
+            try:
+                self.dataList = np.reshape(self.dataList, (-1, 8))
+                df = pd.DataFrame(self.dataList)
+                df.to_csv("list.csv", index=False)
+                self.timer.stop()
+                self.board_shim.release_session()
+                QtWidgets.QApplication.quit()
+                return
+            except:
+                self.timer.stop()
+                self.board_shim.release_session()
+                QtWidgets.QApplication.quit()
+                exit()
         else:
-            data = self.requestData()
+            data = np.array(self.requestData())
             self.processData(finalInputData=data)
 
     def returnData(self):
         return self.results
     
-    def processData(self, finalInputData):
+    def processData(self, finalInputData: np.array):
+
+        finalInputData = self.scaler.transform(np.reshape(finalInputData, shape=(-1,1)))
                 
         usable_rows = finalInputData.shape[0] // 100 * 100
         finalInputData = finalInputData[:usable_rows]
-        reshaped_input = finalInputData.reshape(-1, 100, 8)
+        reshaped_input = np.array(finalInputData.reshape(-1, 100, 8))
 
+        #print(reshaped_input.shape)
         pred = self.model.predict(reshaped_input)
 
         #scaler.fit(pred)
         pred = self.scaler.inverse_transform(pred)
 
         print("Prediction: \n", pred)
+        pred = 0
 
     
 def main():

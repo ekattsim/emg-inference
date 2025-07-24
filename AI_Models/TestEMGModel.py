@@ -47,7 +47,7 @@ async def main():
 
     data = pd.read_csv(
         os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
-                                     "test_data_Notch.csv")), header=None)
+                                     "list.csv")), header=None)
 
     EMGdata = data.to_numpy()
 
@@ -72,7 +72,7 @@ async def main():
 
     elif user_input == "N":
         inputData = np.array([])
-        for data in EMGdata[1:5001]:
+        for data in EMGdata[1:4801]:
             number = [float(value) for value in data]
             numpyNumber = np.array(number)
             inputData = np.append(inputData, [numpyNumber[0:8]]).flatten()
@@ -100,7 +100,7 @@ async def main():
 
         for i in pred:
             # shift and round for uhand robot
-            angle = round(int(i[0]) + 30);
+            angle = round(int(i[0]) + 30)
             print(angle)
             await glove.set_servo_angle(1, angle)
             time.sleep(0.05)
