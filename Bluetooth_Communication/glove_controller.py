@@ -32,11 +32,10 @@ class RoboticGloveController:
             return True
 
         device = await discover_devices_async("Hiwonder")
-        if not device:
-            print("Failed to discover the device. Cannot connect.")
-            return False
-
-        self.device_address = device.address
+        if device:
+            self.device_address = device.address
+        else:
+            print("Failed to discover the device. Using default address.")
 
         print(f"Attempting to connect to {self.device_address}...")
         try:
@@ -134,6 +133,7 @@ class RoboticGloveController:
             await self.client.write_gatt_char(self.write_char_object,
                                               user_input.encode("utf-8"),
                                               response=False)
+            print("Command sent!")
 
         except Exception as e:
             print(f"Error sending command '{user_input}' over BLE: {e}")
