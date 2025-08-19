@@ -59,6 +59,7 @@ class RealTimeGloveControl:
         self.fetch_samples = 50
 
         self.data_buffer = np.array([[] for _ in self.emg_channels]).T
+        self.counter = 0
 
         # --- Device and Model Initialization ---
         self.board_shim = None
@@ -125,10 +126,8 @@ class RealTimeGloveControl:
         # 5. Inverse transform the prediction to get the original scale
         inversed_prediction = self.scaler.inverse_transform(prediction)
 
-        # 6. Convert prediction to a servo angle (adjust as needed)
-        angle = round(int(inversed_prediction[0][0]) + 50)
-        # Clamp the angle to a safe range, e.g., 0-180
-        angle = max(0, min(180, angle))
+        # 6. Convert prediction to a servo angle that's between 0-180
+        angle = round(int(inversed_prediction[0][0]) + 90)
 
         return angle
 
@@ -141,6 +140,7 @@ class RealTimeGloveControl:
 
         logging.info("Starting real-time inference loop...")
         self.board_shim.start_stream(450000)
+        start_time = time.time()
 
         try:
             while True:
@@ -163,7 +163,9 @@ class RealTimeGloveControl:
 
                     # Run the prediction pipeline
                     angle = self._process_window(processing_window)
-                    logging.info(f"Prediction: {angle} degrees")
+                    self.counter += 1
+                    elapsed = time.time() - start_time
+                    logging.info(f"[{elapsed:.2f}s] {self.counter}'th Prediction: {angle} degrees")
 
                     # Send command to the glove
                     if self.glove.is_connected:
