@@ -127,7 +127,7 @@ class RealTimeGloveControl:
         inversed_prediction = self.scaler.inverse_transform(prediction)
 
         # 6. Convert prediction to a servo angle that's between 0-180
-        angle = round(int(inversed_prediction[0][0]) + 90)
+        angle = round(int(inversed_prediction[0][0]) + 45)
 
         return angle
 
@@ -165,7 +165,7 @@ class RealTimeGloveControl:
                     angle = self._process_window(processing_window)
                     self.counter += 1
                     elapsed = time.time() - start_time
-                    logging.info(f"[{elapsed:.2f}s] {self.counter}'th Prediction: {angle} degrees")
+                    logging.info(f"[{elapsed:.2f}s] Prediction {self.counter}: {angle} degrees")
 
                     # Send command to the glove
                     if self.glove.is_connected:
