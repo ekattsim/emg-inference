@@ -95,13 +95,13 @@ class RealTimeGloveControl:
 
     async def _connect_devices(self):
         """Connects to both MindRove and the robotic glove."""
-        self._initialize_mindrove()
         logging.info("Connecting to the robotic glove...")
         await self.glove.connect()
         if self.glove.is_connected:
             logging.info("Robotic glove connected successfully.")
         else:
             raise ConnectionError("Failed to connect to the robotic glove.")
+        self._initialize_mindrove()
 
     def _process_window(self, data_window: np.array):
         """
@@ -138,17 +138,31 @@ class RealTimeGloveControl:
         self._load_models_and_scaler()
         await self._connect_devices()
 
+        # WARM-UP STEP ---
+        logging.info("Warming up the model...")
+        # Create a dummy input tensor with the same shape as your real data.
+        # Shape: (batch_size, window_samples, num_channels)
+        dummy_input = np.zeros((self.window_samples, len(self.emg_channels)), dtype=np.float32)
+        # The first prediction will be slow, but it happens here, before the loop.
+        _ = self._process_window(dummy_input)
+        logging.info("Model is warmed up. Starting real-time inference loop...")
+        # --- END WARM-UP ---
+
         logging.info("Starting real-time inference loop...")
+
         self.board_shim.start_stream(450000)
         start_time = time.time()
 
         try:
             while True:
                 # Get new data from the board
+                elapsed = time.time() - start_time
+                logging.info(f"[{elapsed:.2f}s] Ringbuffer: {self.board_shim.get_board_data_count()}")
                 new_data = self.board_shim.get_board_data(self.fetch_samples)
 
                 if new_data.shape[1] > 0:
                     emg_data = new_data[self.emg_channels, :].T
+                    print("Fetch size: ", emg_data.shape[0])
 
                     # Append new data to our buffer
                     self.data_buffer = np.vstack([self.data_buffer, emg_data])
