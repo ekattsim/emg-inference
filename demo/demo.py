@@ -7,7 +7,6 @@ from scipy.signal import butter, filtfilt
 from tensorflow.keras.models import load_model
 
 from mindrove.board_shim import BoardShim, MindRoveInputParams, BoardIds
-from mindrove.data_filter import DataFilter, NoiseTypes
 
 # Import your RoboticGloveController. Make sure the path is correct.
 # Assuming 'Bluetooth_Communication' is in the parent directory.
@@ -17,7 +16,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from Bluetooth_Communication.glove_controller import RoboticGloveController
 
 # --- Pre-processing Functions ---
-# These functions are copied from your original scripts.
+
 
 def bandpass_filter(signal, fs=500, low=10, high=180, order=4):
     """Applies a bandpass filter to the signal."""
@@ -41,6 +40,7 @@ def envelope_data(signal, fs=500):
         )
     return envelope
 
+
 class RealTimeGloveControl:
     """
     A class to handle the real-time EMG data collection, processing,
@@ -55,8 +55,6 @@ class RealTimeGloveControl:
 
         # The number of data points required for one prediction by the model
         self.window_samples = 100
-        # The number of new samples to fetch in each iteration of the loop
-        self.fetch_samples = 50
 
         self.data_buffer = np.array([[] for _ in self.emg_channels]).T
         self.counter = 0
@@ -72,9 +70,11 @@ class RealTimeGloveControl:
         try:
             logging.info("Loading Keras model and scaler...")
             # --- IMPORTANT: Update these paths to your model and scaler files ---
-            model_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "AI_Models", "cnn_flexion_Aiden.h5"))
+            model_path = os.path.abspath(os.path.join(os.path.dirname(
+                __file__), "..", "AI_Models", "cnn_flexion_Aiden.h5"))
 
-            scaler_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "AI_Models", "emg_scaler_Aiden.pkl"))
+            scaler_path = os.path.abspath(os.path.join(os.path.dirname(
+                __file__), "..", "AI_Models", "emg_scaler_Aiden.pkl"))
 
             self.model = load_model(model_path, compile=False)
             self.scaler = joblib.load(scaler_path)
@@ -110,7 +110,7 @@ class RealTimeGloveControl:
         # 1. Pre-process the data
         bandpassed = bandpass_filter(data_window, fs=self.sampling_rate)
         rectified = rectified_data(bandpassed)
-        enveloped = envelope_data(rectified, fs=self.sampling_rate)
+        enveloped: np.ndarray = envelope_data(rectified, fs=self.sampling_rate)
 
         # 2. Scale the data
         # Reshape for scaler which expects (n_samples, 1)
@@ -142,10 +142,12 @@ class RealTimeGloveControl:
         logging.info("Warming up the model...")
         # Create a dummy input tensor with the same shape as your real data.
         # Shape: (batch_size, window_samples, num_channels)
-        dummy_input = np.zeros((self.window_samples, len(self.emg_channels)), dtype=np.float32)
+        dummy_input = np.zeros(
+            (self.window_samples, len(self.emg_channels)), dtype=np.float32)
         # The first prediction will be slow, but it happens here, before the loop.
         _ = self._process_window(dummy_input)
-        logging.info("Model is warmed up. Starting real-time inference loop...")
+        logging.info(
+            "Model is warmed up. Starting real-time inference loop...")
         # --- END WARM-UP ---
 
         logging.info("Starting real-time inference loop...")
@@ -157,33 +159,43 @@ class RealTimeGloveControl:
             while True:
                 # Get new data from the board
                 elapsed = time.time() - start_time
-                logging.info(f"[{elapsed:.2f}s] Ringbuffer: {self.board_shim.get_board_data_count()}")
-                new_data = self.board_shim.get_board_data(self.fetch_samples)
+                logging.info(f"""[{elapsed:.2f}s] Ringbuffer: {
+                             self.board_shim.get_board_data_count()}""")
 
+                # accumulate exactly 100 samples for the first prediction
+                if len(self.data_buffer) < 100:
+                    new_data = self.board_shim.get_board_data(
+                        self.window_samples - len(self.data_buffer))
+                else:
+                    new_data = self.board_shim.get_board_data()
+
+                # if we have new data, append and process
                 if new_data.shape[1] > 0:
                     emg_data = new_data[self.emg_channels, :].T
-                    print("Fetch size: ", emg_data.shape[0])
+                    logging.info(f"Fetch size: {emg_data.shape[0]}")
 
                     # Append new data to our buffer
                     self.data_buffer = np.vstack([self.data_buffer, emg_data])
 
-                # If we have enough data for a full window, process it
-                if len(self.data_buffer) >= self.window_samples:
-                    # Get the window for processing
-                    processing_window = self.data_buffer[:self.window_samples, :]
+                    # If we have enough data for a full window, process it
+                    if len(self.data_buffer) >= self.window_samples:
+                        # Get the most recent window for processing
+                        recent_window_index = len(self.data_buffer) - self.window_samples
+                        processing_window = self.data_buffer[recent_window_index:, :]
 
-                    # Remove the processed data from the buffer (sliding window)
-                    self.data_buffer = self.data_buffer[self.fetch_samples:, :]
+                        # slide the window
+                        self.data_buffer = self.data_buffer[recent_window_index:, :]
 
-                    # Run the prediction pipeline
-                    angle = self._process_window(processing_window)
-                    self.counter += 1
-                    elapsed = time.time() - start_time
-                    logging.info(f"[{elapsed:.2f}s] Prediction {self.counter}: {angle} degrees")
+                        # Run the prediction pipeline
+                        angle = self._process_window(processing_window)
+                        self.counter += 1
+                        elapsed = time.time() - start_time
+                        logging.info(f"""[{elapsed:.2f}s] Prediction {
+                                    self.counter}: {angle} degrees""")
 
-                    # Send command to the glove
-                    if self.glove.is_connected:
-                        await self.glove.set_servo_angle(1, angle)
+                        # Send command to the glove
+                        if self.glove.is_connected:
+                            await self.glove.set_servo_angle(1, angle)
 
                 # Short pause to prevent hogging CPU and allow other async tasks
                 await asyncio.sleep(0.02)
@@ -202,9 +214,11 @@ class RealTimeGloveControl:
                 await self.glove.disconnect()
                 logging.info("Glove disconnected.")
 
+
 async def main():
     """Main function to run the controller."""
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.basicConfig(level=logging.INFO,
+                        format='%(asctime)s - %(levelname)s - %(message)s')
     controller = RealTimeGloveControl()
     await controller.run()
 
