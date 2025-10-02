@@ -162,14 +162,14 @@ class RealTimeGloveControl:
                 logging.info(f"""[{elapsed:.2f}s] Ringbuffer: {
                              self.board_shim.get_board_data_count()}""")
 
-                # accumulate exactly 100 samples for the first prediction
-                if len(self.data_buffer) < 100:
+                # accumulate exactly enough samples for the first prediction
+                if len(self.data_buffer) < self.window_samples:
                     new_data = self.board_shim.get_board_data(
                         self.window_samples - len(self.data_buffer))
                 else:
                     new_data = self.board_shim.get_board_data()
 
-                # if we have new data, append and process
+                # if we have new data, append, slide, and process
                 if new_data.shape[1] > 0:
                     emg_data = new_data[self.emg_channels, :].T
                     logging.info(f"Fetch size: {emg_data.shape[0]}")
@@ -184,7 +184,7 @@ class RealTimeGloveControl:
                         processing_window = self.data_buffer[recent_window_index:, :]
 
                         # slide the window
-                        self.data_buffer = self.data_buffer[recent_window_index:, :]
+                        self.data_buffer = processing_window
 
                         # Run the prediction pipeline
                         angle = self._process_window(processing_window)
