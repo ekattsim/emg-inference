@@ -4,6 +4,7 @@ import time
 import numpy as np
 import joblib
 from scipy.signal import butter, filtfilt
+import tensorflow as tf
 from tensorflow.keras.models import load_model
 
 from mindrove.board_shim import BoardShim, MindRoveInputParams, BoardIds
@@ -63,23 +64,30 @@ class RealTimeGloveControl:
         self.board_shim = None
         self.glove = RoboticGloveController()
         self.model = None
+        self.infer = None
         self.scaler = None
 
     def _load_models_and_scaler(self):
         """Loads the Keras model and the scaler."""
         try:
-            logging.info("Loading Keras model and scaler...")
-            # --- IMPORTANT: Update these paths to your model and scaler files ---
-            model_path = os.path.abspath(os.path.join(os.path.dirname(
-                __file__), "..", "AI_Models", "cnn_flexion_Aiden.h5"))
+            # stop tf from pre-allocating like 90% memory
+            gpus = tf.config.list_physical_devices('GPU')
+            if gpus:
+                for gpu in gpus:
+                    tf.config.experimental.set_memory_growth(gpu, True) # we run into OOM errors without this
+                logging.info("Enabled GPU memory growth")
 
-            scaler_path = os.path.abspath(os.path.join(os.path.dirname(
-                __file__), "..", "AI_Models", "emg_scaler_Aiden.pkl"))
+            logging.info("Loading TF-TRT optimized model and scaler...")
+            # Load the TF-TRT SavedModel
+            trt_model_dir = "./models/tftrt_saved_model"
+            self.model = tf.saved_model.load(trt_model_dir)
+            self.infer = self.model.signatures["serving_default"]
+            logging.info("TF-TRT model loaded.")
 
-            self.model = load_model(model_path, compile=False)
+            # Load scaler
+            scaler_path = "../AI_Models/emg_scaler_Aiden.pkl"
             self.scaler = joblib.load(scaler_path)
-            self.model.summary()
-            logging.info("Model and scaler loaded successfully.")
+            logging.info("Scaler loaded.")
         except Exception as e:
             logging.error(f"Failed to load model or scaler: {e}")
             raise
@@ -121,10 +129,12 @@ class RealTimeGloveControl:
             1, self.window_samples, len(self.emg_channels))
 
         # 4. Predict
-        prediction = self.model.predict(reshaped_input)
+        input_tensor = tf.constant(reshaped, dtype=tf.float32)
+        prediction = self.infer(input_tensor)
+        pred_value = list(prediction.values())[0].numpy()
 
         # 5. Inverse transform the prediction to get the original scale
-        inversed_prediction = self.scaler.inverse_transform(prediction)
+        inversed_prediction = self.scaler.inverse_transform(pred_value)
 
         # 6. Convert prediction to a servo angle that's between 0-180
         angle = round(int(inversed_prediction[0][0]) + 45)
