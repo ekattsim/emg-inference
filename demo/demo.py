@@ -13,7 +13,7 @@ from mindrove.board_shim import BoardShim, MindRoveInputParams, BoardIds
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from Bluetooth_Communication.glove_controller import RoboticGloveController
+from Bluetooth_Communication.serial_glove_controller import RoboticGloveController
 
 # --- Pre-processing Functions ---
 
