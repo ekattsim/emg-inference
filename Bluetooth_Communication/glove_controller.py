@@ -2,6 +2,7 @@ from bleak import BleakClient, BleakScanner
 
 # The address/system ID of the Robotic Glove BLE device.
 DEVICE_ADDRESS = "24A528A5-46FC-C425-02D5-E59445D692C3"
+DEVICE_MAC_ADDRESS = "48:87:2D:7A:61:AD"
 
 # The Service UUID where the communication characteristics reside.
 UART_SERVICE_UUID = "FFF0"
@@ -17,7 +18,7 @@ READ_CHARACTERISTIC_UUID = "0000FFE1-0000-1000-8000-00805F9B34FB"
 # Asynchronous RoboticGloveController Class
 class RoboticGloveController:
     def __init__(self):
-        self.device_address = DEVICE_ADDRESS
+        self.device_address = DEVICE_MAC_ADDRESS
         self.client: BleakClient = None
         self.is_connected = False
         self.write_char_object = None
@@ -192,7 +193,7 @@ async def discover_devices_async(name):
     """
     print("Scanning for BLE devices...")
     # Scan for 5 seconds
-    device = await BleakScanner.find_device_by_name(name, timeout=5.0)
+    device = await BleakScanner.find_device_by_name(name, timeout=10.0)
 
     if not device:
         print(f"No BLE device with name {name} found.")

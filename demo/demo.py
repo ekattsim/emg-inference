@@ -78,7 +78,6 @@ class RealTimeGloveControl:
 
             self.model = load_model(model_path, compile=False)
             self.scaler = joblib.load(scaler_path)
-            self.model.summary()
             logging.info("Model and scaler loaded successfully.")
         except Exception as e:
             logging.error(f"Failed to load model or scaler: {e}")
