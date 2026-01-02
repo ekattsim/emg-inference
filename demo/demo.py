@@ -5,11 +5,9 @@ import numpy as np
 import joblib
 from scipy.signal import butter, filtfilt
 import tensorflow as tf
-from tensorflow.keras.models import load_model
 
 from mindrove.board_shim import BoardShim, MindRoveInputParams, BoardIds
 
-# Import your RoboticGloveController. Make sure the path is correct.
 # Assuming 'Bluetooth_Communication' is in the parent directory.
 import sys
 import os
@@ -129,7 +127,7 @@ class RealTimeGloveControl:
             1, self.window_samples, len(self.emg_channels))
 
         # 4. Predict
-        input_tensor = tf.constant(reshaped, dtype=tf.float32)
+        input_tensor = tf.constant(reshaped_input, dtype=tf.float32)
         prediction = self.infer(input_tensor)
         pred_value = list(prediction.values())[0].numpy()
 
